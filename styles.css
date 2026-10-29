@@ -1178,31 +1178,122 @@ html, body {
 }
 .modal-action-danger:active { opacity: 0.85; }
 
-/* ─── Complete button ────────────────────────── */
-.complete-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 13px 24px;
-  background: #16a34a;
-  color: #fff;
+/* ─── Work entry (readings / start / code) ───── */
+.entry-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-readings {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-input {
+  font-size: 1.05rem;
+  margin-bottom: 10px;
+}
+.entry-input:disabled {
+  background: var(--bg);
+  color: var(--text-medium);
+}
+
+.entry-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.entry-link-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0 0 12px;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.entry-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+.entry-status.is-done { color: #16a34a; }
+
+.entry-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.entry-btn {
+  width: 100%;
+  padding: 14px;
   border: none;
   border-radius: 14px;
   font-size: 1rem;
   font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(22,163,74,0.3);
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
+}
+.entry-btn:active { opacity: 0.85; }
+
+.entry-btn-start {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(30,80,162,0.3);
 }
 
-.complete-btn:active { background: #15803d; }
-
-.complete-btn.done {
+.entry-btn-code {
+  background: #16a34a;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(22,163,74,0.3);
+}
+/* Not started yet — still tappable so the worker is told why */
+.entry-btn-code.is-locked {
   background: #d1d5db;
   color: #6b7280;
   box-shadow: none;
 }
+
+.entry-btn-reopen {
+  background: var(--bg);
+  color: var(--text-dark);
+}
+
+/* ─── Completion code picker ─────────────────── */
+.code-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.code-option {
+  padding: 18px 0;
+  border: 2px solid var(--divider);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text-dark);
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.code-option.selected {
+  border-color: #16a34a;
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.modal-action-primary:disabled { opacity: 0.45; }
 
 /* ─── Toast ──────────────────────────────────── */
 .toast {

@@ -5,7 +5,7 @@
 'use strict';
 
 // ── Version ───────────────────────────────────
-const APP_VERSION = 'v2-1.0';
+const APP_VERSION = 'v2-1.1';
 
 // ── Google Sheets published CSV URL ───────────
 // Dispatcher: File → Share → Publish to web → CSV → paste the URL here
@@ -56,6 +56,25 @@ const ROSTER = [
 ];
 const PIN_UNLOCK_PREFIX = 'wo2_pin_'; // localStorage: wo2_pin_<engineer> = 'YYYY-MM-DD'
 
+// ── Completion codes ──────────────────────────
+// Codes a worker may close each notification code with. A notification code
+// missing here cannot be completed until its codes are added.
+const COMPLETION_CODES = {
+  CKRD: ['10', '20', '25'],
+  ESTS: ['10', '20', '25'],
+  MT31: ['10', '20', '25'],
+  RDLK: ['10', '20'],
+  TC01: ['10', '20'],
+  LKFS: ['10', '20', '70'],
+  LKSN: ['10', '20', '70'],
+  TLOC: ['10', '20', '70'],
+  LKOO: ['10', '20', '70'],
+  RMBE: ['10', '50', '70'],
+  MOVE: ['10', '20', '25'],
+};
+// Notification codes that need a reading before and after the work
+const BEFORE_AFTER_CODES = new Set(['RMBE']);
+
 // ── ID prefixes ───────────────────────────────
 const CUSTOM_ID_PREFIX = 'CUSTOM-';
 const NEW_WO_ID_PREFIX = 'NWO-';
@@ -67,13 +86,18 @@ const COMPLETIONS_KEY = 'wo2_completions';
 const MAP_STYLE_KEY = 'wo2_map_style';
 const ENGINEER_KEY = 'wo2_engineer';
 const POINTS_KEY = 'wo2_points';
+// Readings, instrument #, start time and completion code per work order. Kept
+// apart from COMPLETIONS_KEY so the daily purge never erases entered data.
+const RESULTS_KEY = 'wo2_results';
 
 
 // ── State ─────────────────────────────────────
 let workOrders = [];       // parsed CSV rows
 let geocodedPoints = [];       // { lat, lng, row }
 let geocodeFailures = [];       // { row, query }
-let completions = {};       // { [workorder]: { date } }
+let completions = {};       // { [workorder]: { date, code } }
+let results = {};       // { [workorder]: { readings, instrument, startedAt, completedAt, code, engineer } }
+let pendingCode = '';     // code highlighted in the completion code modal
 let mapInitialized = false;
 let leafletMap = null;
 let clusterGroup = null;     // L.markerClusterGroup holding all WO markers
@@ -173,7 +197,19 @@ const detailGroupLabel = document.getElementById('detail-group-label');
 const btnDetailPrev = document.getElementById('detail-prev');
 const btnDetailNext = document.getElementById('detail-next');
 const toast = document.getElementById('toast');
-const btnComplete = document.getElementById('btn-complete');
+const entrySection = document.getElementById('entry-section');
+const entryReadings = document.getElementById('entry-readings');
+const btnAddReading = document.getElementById('btn-add-reading');
+const entryInstrument = document.getElementById('entry-instrument');
+const entryStatus = document.getElementById('entry-status');
+const btnStartWo = document.getElementById('btn-start-wo');
+const btnEnterCode = document.getElementById('btn-enter-code');
+const btnReopenWo = document.getElementById('btn-reopen-wo');
+const codeModal = document.getElementById('code-modal');
+const codeModalDesc = document.getElementById('code-modal-desc');
+const codeOptions = document.getElementById('code-options');
+const btnCodeConfirm = document.getElementById('btn-code-confirm');
+const btnCodeCancel = document.getElementById('btn-code-cancel');
 const btnDeleteWO = document.getElementById('btn-delete-wo');
 const overdueWarning = document.getElementById('detail-overdue-warning');
 const overdueText = document.getElementById('detail-overdue-text');
@@ -532,6 +568,15 @@ function loadCompletions() {
 }
 function saveCompletions() {
   try { localStorage.setItem(COMPLETIONS_KEY, JSON.stringify(completions)); } catch (_) { }
+}
+
+function loadResults() {
+  try { return JSON.parse(localStorage.getItem(RESULTS_KEY) || '{}'); } catch (_) { return {}; }
+}
+function saveResults() {
+  try { localStorage.setItem(RESULTS_KEY, JSON.stringify(results)); } catch (_) {
+    showToast('Phone storage is full — entered data may not be saved', true);
+  }
 }
 
 // ── Purge completed work orders from previous days ────────────────────────
@@ -1265,30 +1310,18 @@ function openDetailSheet(row, lat, lng) {
   navApple.href = `https://maps.apple.com/?daddr=${lat},${lng}`;
   navWaze.href = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
 
-  // Set complete button state
-  const wo = (row['Workorder'] || '').trim();
-  if (completions[wo]) {
-    btnComplete.classList.add('done');
-    btnComplete.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/></svg> Completed`;
-  } else {
-    btnComplete.classList.remove('done');
-    btnComplete.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/></svg> Complete`;
-  }
+  renderEntry(row);
 
   if (row._isCustom) {
     detailNotifChip.textContent = 'Custom';
     detailNotifChip.className = 'notif-chip chip-default';
     detailWoNum.textContent = 'Added Address';
-    btnComplete.classList.add('hidden');
+    entrySection.classList.add('hidden');
     btnFixLocation.classList.add('hidden');
     btnDeleteWO.style.display = 'flex';
     btnDeleteWO.querySelector('span') && (btnDeleteWO.querySelector('span').textContent = 'Delete Address');
   } else {
-    btnComplete.classList.remove('hidden');
+    entrySection.classList.remove('hidden');
     btnFixLocation.classList.remove('hidden');
     btnDeleteWO.style.display = 'flex';
     btnDeleteWO.querySelector('span') && (btnDeleteWO.querySelector('span').textContent = 'Delete Work Order');
@@ -2311,33 +2344,190 @@ navGoogle.addEventListener('click', onNavClick);
 navApple.addEventListener('click', onNavClick);
 navWaze.addEventListener('click', onNavClick);
 
-btnComplete.addEventListener('click', () => {
-  if (!activeRow) return;
-  const wo = (activeRow['Workorder'] || '').trim();
-  if (!wo) return;
+// ── Work entry (readings, instrument #, start, completion code) ──────────
+function notifCodeOf(row) { return (row['Notification Code'] || '').trim().toUpperCase(); }
 
-  if (completions[wo]) {
-    // Undo
-    delete completions[wo];
-    saveCompletions();
-    refreshMarkerIcon(wo);
-    btnComplete.classList.remove('done');
-    btnComplete.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/></svg> Complete`;
+function ensureResult(wo) {
+  return results[wo] || (results[wo] = { readings: [], instrument: '' });
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' });
+}
+
+function renderEntry(row) {
+  const wo = woId(row);
+  const res = results[wo] || {};
+  const done = !!completions[wo];
+  const beforeAfter = BEFORE_AFTER_CODES.has(notifCodeOf(row));
+
+  const saved = res.readings || [];
+  const labels = beforeAfter
+    ? ['Before Reading', 'After Reading']
+    : (saved.length ? saved : ['']).map((_, i) => i ? `Reading ${i + 1}` : 'Reading');
+
+  entryReadings.innerHTML = '';
+  labels.forEach((label, i) => {
+    const id = `entry-reading-${i}`;
+    const lab = document.createElement('label');
+    lab.className = 'detail-label';
+    lab.htmlFor = id;
+    lab.textContent = label;
+    const input = document.createElement('input');
+    input.id = id;
+    input.className = 'add-address-input entry-input entry-reading';
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.autocomplete = 'off';
+    input.value = saved[i] || '';
+    input.disabled = done;
+    input.addEventListener('input', () => saveEntryDraft(wo));
+    entryReadings.append(lab, input);
+  });
+
+  btnAddReading.classList.toggle('hidden', beforeAfter || done);
+  entryInstrument.value = res.instrument || '';
+  entryInstrument.disabled = done;
+
+  if (done && res.code) {
+    entryStatus.textContent = `Completed ${fmtTime(res.completedAt)} — code ${res.code}`;
+  } else if (done) {
+    entryStatus.textContent = 'Completed';
+  } else if (res.startedAt) {
+    entryStatus.textContent = `Started ${fmtTime(res.startedAt)}`;
   } else {
-    // Mark complete
-    completions[wo] = { date: new Date().toLocaleString('en-CA') };
-    saveCompletions();
-    refreshMarkerIcon(wo);
-    btnComplete.classList.add('done');
-    btnComplete.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/></svg> Completed`;
-    showToast('Work order completed');
+    entryStatus.textContent = '';
   }
+  entryStatus.classList.toggle('hidden', !entryStatus.textContent);
+  entryStatus.classList.toggle('is-done', done);
+
+  btnStartWo.classList.toggle('hidden', done || !!res.startedAt);
+  btnEnterCode.classList.toggle('hidden', done);
+  btnEnterCode.classList.toggle('is-locked', !res.startedAt);
+  btnReopenWo.classList.toggle('hidden', !done);
+}
+
+function saveEntryDraft(wo) {
+  const res = ensureResult(wo);
+  res.readings = [...entryReadings.querySelectorAll('.entry-reading')].map(i => i.value.trim());
+  res.instrument = entryInstrument.value.trim();
+  saveResults();
+}
+
+entryInstrument.addEventListener('input', () => {
+  if (activeRow) saveEntryDraft(woId(activeRow));
+});
+
+btnAddReading.addEventListener('click', () => {
+  if (!activeRow) return;
+  const wo = woId(activeRow);
+  saveEntryDraft(wo);
+  results[wo].readings.push('');
+  saveResults();
+  renderEntry(activeRow);
+  const inputs = entryReadings.querySelectorAll('.entry-reading');
+  inputs[inputs.length - 1].focus();
+});
+
+btnStartWo.addEventListener('click', () => {
+  if (!activeRow) return;
+  const wo = woId(activeRow);
+  if (!wo) return;
+  saveEntryDraft(wo);
+  const res = results[wo];
+  res.startedAt = new Date().toISOString();
+  res.engineer = selectedEngineer;
+  saveResults();
+  renderEntry(activeRow);
+  showToast('Work order started');
+});
+
+btnEnterCode.addEventListener('click', () => {
+  if (!activeRow) return;
+  const wo = woId(activeRow);
+  if (!wo) return;
+  saveEntryDraft(wo);
+  const res = results[wo];
+
+  if (!res.startedAt) {
+    showToast('Tap Start Work Order first', true);
+    return;
+  }
+
+  const notif = notifCodeOf(activeRow);
+  const codes = COMPLETION_CODES[notif];
+  if (!codes) {
+    showToast(`No completion codes set up for ${notif || 'this work order'}`, true);
+    return;
+  }
+
+  if (BEFORE_AFTER_CODES.has(notif)) {
+    const missing = res.readings.findIndex(v => !v);
+    if (res.readings.length < 2 || missing !== -1) {
+      showToast(`${notif} needs a before and after reading`, true);
+      entryReadings.querySelectorAll('.entry-reading')[missing === -1 ? 0 : missing].focus();
+      return;
+    }
+  }
+
+  pendingCode = '';
+  codeModalDesc.textContent = `${notif} · WO# ${wo}`;
+  codeOptions.innerHTML = '';
+  codes.forEach(code => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'code-option';
+    btn.textContent = code;
+    btn.addEventListener('click', () => {
+      pendingCode = code;
+      codeOptions.querySelectorAll('.code-option').forEach(b => b.classList.toggle('selected', b === btn));
+      btnCodeConfirm.disabled = false;
+      btnCodeConfirm.textContent = `Complete with Code ${code}`;
+    });
+    codeOptions.appendChild(btn);
+  });
+  btnCodeConfirm.disabled = true;
+  btnCodeConfirm.textContent = 'Select a code';
+  codeModal.classList.remove('hidden');
+});
+
+btnCodeCancel.addEventListener('click', () => codeModal.classList.add('hidden'));
+
+btnCodeConfirm.addEventListener('click', () => {
+  if (!activeRow || !pendingCode) return;
+  const wo = woId(activeRow);
+  const res = ensureResult(wo);
+  res.code = pendingCode;
+  res.completedAt = new Date().toISOString();
+  saveResults();
+
+  completions[wo] = { date: new Date().toLocaleString('en-CA'), code: pendingCode };
+  saveCompletions();
+  refreshMarkerIcon(wo);
   updateStatusBar();
   updateCompletedCountBadge();
+
+  codeModal.classList.add('hidden');
+  renderEntry(activeRow);
+  showToast(`Work order completed — code ${pendingCode}`);
+});
+
+btnReopenWo.addEventListener('click', () => {
+  if (!activeRow) return;
+  const wo = woId(activeRow);
+  if (!confirm('Reopen this work order? Its completion code will be cleared.')) return;
+
+  delete completions[wo];
+  saveCompletions();
+  const res = ensureResult(wo);
+  delete res.code;
+  delete res.completedAt;
+  saveResults();
+
+  refreshMarkerIcon(wo);
+  updateStatusBar();
+  updateCompletedCountBadge();
+  renderEntry(activeRow);
 });
 
 // ── Universal delete work order (covers regular WOs, TN- notices, and custom addresses) ──
@@ -2718,6 +2908,7 @@ function bootContinue() {
 
 function boot() {
   completions = loadCompletions();
+  results = loadResults();
   purgeOldCompletions();   // remove work orders completed before today
   updateCompletedCountBadge();
   updateTokenStatusLabel();
