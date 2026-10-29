@@ -12,7 +12,7 @@ const APP_VERSION = 'v2-1.0';
 const SHEETS_CSV_URL = 'PASTE_V2_SHEETS_CSV_URL_HERE';
 
 // GitHub Gist — token is stored in localStorage, entered once via the burger menu
-const GITHUB_GIST_ID = 'PASTE_V2_GIST_ID_HERE';
+const GITHUB_GIST_ID = '3258e5edd7ce52bb1a7e5781b7bd922c';
 const GITHUB_GIST_OWNER = 'metroutes-blip';
 const GIST_TOKEN_KEY = 'wo2_gist_token';
 function getGistToken() { return localStorage.getItem(GIST_TOKEN_KEY) || ''; }
