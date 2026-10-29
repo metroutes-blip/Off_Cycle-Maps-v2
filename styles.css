@@ -474,6 +474,15 @@ html, body {
 .notif-chip.chip-ye { background: var(--chip-ye-bg); color: var(--chip-ye-text); }
 .notif-chip.chip-default { background: var(--chip-default-bg); color: var(--chip-default-text); }
 
+/* Notification code in the detail sheet, coloured like its map marker */
+.detail-code-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .detail-wo-num {
   font-size: 0.9rem;
   font-weight: 600;

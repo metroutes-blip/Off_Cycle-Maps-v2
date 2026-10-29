@@ -5,7 +5,7 @@
 'use strict';
 
 // ── Version ───────────────────────────────────
-const APP_VERSION = 'v2-1.2';
+const APP_VERSION = 'v2-1.3';
 
 // ── Google Sheets published CSV URL ───────────
 // Dispatcher: File → Share → Publish to web → CSV → paste the URL here
@@ -1244,6 +1244,27 @@ function chipClass(type) {
   return 'chip-default';
 }
 
+// ── Marker colour for the detail sheet ────────
+// Same colour the work order's marker has on the map, so the sheet matches it
+function markerColorFor(row) {
+  const placed = PLACED_TYPES[(row['_placedType'] || '').trim()];
+  if (placed) return placed.bg === '#fff' ? placed.ring : placed.bg;
+  return getMarkerColor(row);
+}
+
+// Dark text on light colours (yellows), white on the rest
+function textColorOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 160 ? '#1a2438' : '#fff';
+}
+
+function paintMarkerColor(el, row) {
+  const bg = row ? markerColorFor(row) : '';
+  el.style.background = bg;
+  el.style.color = bg ? textColorOn(bg) : '';
+}
+
 // ── Detail sheet ──────────────────────────────
 function openDetailSheet(row, lat, lng) {
   sheetJustOpened = true;
@@ -1260,7 +1281,8 @@ function openDetailSheet(row, lat, lng) {
 
   const notifType = (row['Notification Type'] || '').trim();
   detailNotifChip.textContent = notifType || '—';
-  detailNotifChip.className = `notif-chip ${chipClass(notifType)}`;
+  detailNotifChip.className = 'notif-chip';
+  paintMarkerColor(detailNotifChip, row);
   detailWoNum.textContent = `WO# ${row['Workorder'] || '—'}`;
 
   detailAddress.textContent = (row['Street Address'] || '').trim() || '—';
@@ -1284,7 +1306,10 @@ function openDetailSheet(row, lat, lng) {
   }
 
   detailWorkType.textContent = (row['Meter Location'] || '').trim() || '—';
-  detailNotifCode.textContent = (row['Notification Code'] || '').trim() || '—';
+  const notifCode = (row['Notification Code'] || '').trim();
+  detailNotifCode.textContent = notifCode || '—';
+  detailNotifCode.classList.toggle('detail-code-pill', !!notifCode);
+  paintMarkerColor(detailNotifCode, notifCode ? row : null);
   detailMeterNum.textContent = (row['Meter Number'] || '').trim() || '—';
   detailMeterSize.textContent = (row['Meter Size'] || '').trim() || '—';
 
@@ -1316,6 +1341,7 @@ function openDetailSheet(row, lat, lng) {
   if (row._isCustom) {
     detailNotifChip.textContent = 'Custom';
     detailNotifChip.className = 'notif-chip chip-default';
+    paintMarkerColor(detailNotifChip, null);
     detailWoNum.textContent = 'Added Address';
     entrySection.classList.add('hidden');
     btnFixLocation.classList.add('hidden');
