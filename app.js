@@ -404,6 +404,9 @@ async function fetchFromGist() {
   for (const route of [fetchGistViaRaw, fetchGistViaApi]) {
     try {
       const records = await route(headers);
+      // A brand-new gist holds `[]` — a valid, empty list, not a failure.
+      // Reporting it as an error would block the Sheets fallback and uploads.
+      if (Array.isArray(records) && !records.length) return [];
       if (looksLikeWorkOrders(records)) return records;
       lastGistFetchError = 'Cloud list was empty or malformed';
     } catch (e) {
